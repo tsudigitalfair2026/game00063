@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ねこブロックパズル</title>
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+-webkit-tap-highlight-color:transparent;
+}
+html,body{
+width:100%;
+height:100%;
+overflow:hidden;
+touch-action:none;
+font-family:sans-serif;
+background:#1f2937;
+color:#fff;
+}
+.screen{
+display:none;
+width:100%;
+height:100%;
+padding:16px;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+text-align:center;
+}
+.active{
+display:flex;
+}
+h1{
+font-size:2rem;
+margin-bottom:12px;
+}
+p{
+line-height:1.5;
+margin-bottom:10px;
+}
+button{
+border:none;
+border-radius:16px;
+padding:16px 28px;
+font-size:1.1rem;
+font-weight:bold;
+cursor:pointer;
+background:#f59e0b;
+color:#fff;
+min-width:180px;
+}
+button:active{
+transform:scale(0.96);
+}
+#gameScreen{
+justify-content:flex-start;
+padding:10px;
+}
+.topbar{
+width:100%;
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:10px;
+font-size:1.1rem;
+font-weight:bold;
+}
+#gameArea{
+width:min(95vw,520px);
+aspect-ratio:1/1;
+display:grid;
+grid-template-columns:repeat(8,1fr);
+gap:3px;
+margin:auto;
+touch-action:none;
+}
+.cell{
+border-radius:10px;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:1.4rem;
+user-select:none;
+cursor:pointer;
+border:2px solid rgba(255,255,255,0.15);
+transition:transform .08s;
+}
+.cell.selected{
+outline:4px solid #fff;
+transform:scale(0.9);
+}
+.rank{
+font-size:2rem;
+margin:16px 0;
+color:#fbbf24;
+}
+.info{
+max-width:500px;
+}
+@media (max-width:480px){
+h1{
+font-size:1.7rem;
+}
+button{
+width:90%;
+}
+}
+</style>
+</head>
+<body>
+
+<div id="startScreen" class="screen active">
+<h1>🐱 ねこブロックパズル</h1>
+<div class="info">
+<p>同じ色のねこブロックを2個以上つなげて消そう！</p>
+<p>タップでグループ選択 → もう一度タップで消去！</p>
+<p>たくさんまとめて消すほど高得点！</p>
+<p>制限時間は60秒！</p>
+</div>
+<button id="startBtn">スタート</button>
+</div>
+
+<div id="gameScreen" class="screen">
+<div class="topbar">
+<div>🏆 <span id="score">0</span></div>
+<div>⏰ <span id="time">60</span></div>
+</div>
+<div id="gameArea"></div>
+</div>
+
+<div id="resultScreen" class="screen">
+<h1>結果発表</h1>
+<div style="font-size:1.8rem;margin:10px 0;">
+スコア: <span id="finalScore">0</span>
+</div>
+<div id="rank" class="rank">C</div>
+<button id="restartBtn">もう一度遊ぶ</button>
+</div>
+
+<script>
+const COLORS=[
+"#ef4444",
+"#3b82f6",
+"#22c55e",
+"#eab308",
+"#a855f7",
+"#ec4899"
+];
+
+const CATS=["🐱","😺","😸","😹","😻","😼"];
+
+const SIZE=8;
+let board=[];
+let score=0;
+let timeLeft=60;
+let timer=null;
+let selected=[];
+
+const gameArea=document.getElementById("gameArea");
+const scoreEl=document.getElementById("score");
+const timeEl=document.getElementById("time");
+
+function showScreen(id){
+document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+document.getElementById(id).classList.add("active");
+}
+
+function createBoard(){
+board=[];
+for(let r=0;r<SIZE;r++){
+let row=[];
+for(let c=0;c<SIZE;c++){
+row.push(Math.floor(Math.random()*COLORS.length));
+}
+board.push(row);
+}
+}
+
+function drawBoard(){
+gameArea.innerHTML="";
+for(let r=0;r<SIZE;r++){
+for(let c=0;c<SIZE;c++){
+const cell=document.createElement("div");
+cell.className="cell";
+
+if(board[r][c]!==null){
+cell.style.background=COLORS[board[r][c]];
+cell.textContent=CATS[board[r][c]];
+}
+
+cell.dataset.r=r;
+cell.dataset.c=c;
+
+if(selected.some(p=>p.r===r&&p.c===c)){
+cell.classList.add("selected");
+}
+
+cell.addEventListener("click",handleCell);
+gameArea.appendChild(cell);
+}
+}
+}
+
+function handleCell(e){
+const r=parseInt(e.currentTarget.dataset.r);
+const c=parseInt(e.currentTarget.dataset.c);
+
+if(board[r][c]===null) return;
+
+const group=findGroup(r,c);
+
+if(group.length<2) return;
+
+if(
+selected.length===group.length &&
+selected.every(a=>group.some(b=>a.r===b.r&&a.c===b.c))
+){
+removeGroup(group);
+selected=[];
+}else{
+selected=group;
+drawBoard();
+}
+}
+
+function findGroup(sr,sc){
+const color=board[sr][sc];
+const stack=[[sr,sc]];
+const visited=new Set();
+const result=[];
+
+while(stack.length){
+const [r,c]=stack.pop();
+const key=r+","+c;
+
+if(visited.has(key)) continue;
+visited.add(key);
+
+if(
+r<0||r>=SIZE||
+c<0||c>=SIZE||
+board[r][c]!==color
+) continue;
+
+result.push({r,c});
+
+stack.push([r+1,c]);
+stack.push([r-1,c]);
+stack.push([r,c+1]);
+stack.push([r,c-1]);
+}
+return result;
+}
+
+function removeGroup(group){
+
+group.forEach(p=>{
+board[p.r][p.c]=null;
+});
+
+const gain=group.length*group.length*10;
+score+=gain;
+scoreEl.textContent=score;
+
+applyGravity();
+refillBoard();
+drawBoard();
+
+if(!hasMoves()){
+shuffleBoard();
+drawBoard();
+}
+}
+
+function applyGravity(){
+for(let c=0;c<SIZE;c++){
+let column=[];
+for(let r=SIZE-1;r>=0;r--){
+if(board[r][c]!==null){
+column.push(board[r][c]);
+}
+}
+for(let r=SIZE-1;r>=0;r--){
+board[r][c]=column[SIZE-1-r]!==undefined
+?column[SIZE-1-r]
+:null;
+}
+}
+}
+
+function refillBoard(){
+for(let r=0;r<SIZE;r++){
+for(let c=0;c<SIZE;c++){
+if(board[r][c]===null){
+board[r][c]=Math.floor(Math.random()*COLORS.length);
+}
+}
+}
+}
+
+function hasMoves(){
+for(let r=0;r<SIZE;r++){
+for(let c=0;c<SIZE;c++){
+const color=board[r][c];
+if(r<SIZE-1 && board[r+1][c]===color) return true;
+if(c<SIZE-1 && board[r][c+1]===color) return true;
+}
+}
+return false;
+}
+
+function shuffleBoard(){
+let values=[];
+for(let r=0;r<SIZE;r++){
+for(let c=0;c<SIZE;c++){
+values.push(board[r][c]);
+}
+}
+
+for(let i=values.length-1;i>0;i--){
+const j=Math.floor(Math.random()*(i+1));
+[values[i],values[j]]=[values[j],values[i]];
+}
+
+let k=0;
+for(let r=0;r<SIZE;r++){
+for(let c=0;c<SIZE;c++){
+board[r][c]=values[k++];
+}
+}
+}
+
+function startGame(){
+score=0;
+timeLeft=60;
+selected=[];
+
+scoreEl.textContent=0;
+timeEl.textContent=60;
+
+createBoard();
+
+if(!hasMoves()){
+shuffleBoard();
+}
+
+drawBoard();
+
+showScreen("gameScreen");
+
+clearInterval(timer);
+timer=setInterval(()=>{
+timeLeft--;
+timeEl.textContent=timeLeft;
+
+if(timeLeft<=0){
+endGame();
+}
+},1000);
+}
+
+function endGame(){
+clearInterval(timer);
+
+document.getElementById("finalScore").textContent=score;
+
+let rank="C";
+if(score>=1000) rank="B";
+if(score>=2500) rank="A";
+if(score>=5000) rank="S";
+if(score>=9000) rank="SS";
+
+document.getElementById("rank").textContent=rank;
+
+showScreen("resultScreen");
+}
+
+document.getElementById("startBtn").addEventListener("click",startGame);
+document.getElementById("restartBtn").addEventListener("click",startGame);
+
+document.addEventListener("gesturestart",e=>e.preventDefault());
+document.addEventListener("dblclick",e=>e.preventDefault());
+
+</script>
+</body>
+</html>
